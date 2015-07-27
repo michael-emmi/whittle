@@ -14,6 +14,10 @@ def error(msg)
   exit(-1)
 end
 
+def warn(msg)
+  puts "Warning: #{msg}".yellow
+end
+
 class Naming
   def initialize(directory, original)
     @directory = directory
@@ -25,6 +29,9 @@ class Naming
   end
   def result(index)
     File.join(@directory,"#{@basename}.#{index}.out")
+  end
+  def count(index)
+    File.join(@directory,"#{@basename}.#{index}.count")
   end
 end
 
@@ -51,6 +58,9 @@ OptionParser.new do |opts|
   opts.on("-q", "--query CMD", "The query command") do |cmd|
     @query = cmd
   end
+  opts.on("-c", "--count CMD", "The seed-counting command") do |cmd|
+    @count = cmd
+  end
   opts.on("-r", "--reduce CMD", "The reduce command") do |cmd|
     @reduce = cmd
   end
@@ -76,6 +86,7 @@ begin
   error "input file does not exist" unless File.exist?(ARGV.first)
   error "must specify a query method" unless @query
   error "must specify a reduce method" unless @reduce
+  warn "termination is not guaranteed without seed counting" unless @count
   error "output directory #{@dir} already exists" if File.exist?(@dir)
   @input = ARGV.first
 
@@ -87,9 +98,13 @@ begin
   run(@query.gsub(/#{@efile}/,@namer.file(0)), @namer.result(0))
 
   index = 1
-  seeds = [0,1,2] # TODO obtain the seeds range
+
+  puts "Counting seeds"
+  run(@count.gsub(/#{@efile}/,@namer.file(0)), @namer.count(0))
+  seeds = File.read(@namer.count(0)).to_i.times.to_a
 
   loop do
+
     if seeds.empty?
       puts "Exhausted all known reductions"
       break
@@ -107,8 +122,12 @@ begin
 
     if FileUtils.identical?(@namer.result(0),@namer.result(index))
       puts "obtained new reduction (number #{index})"
+
+      puts "Counting seeds"
+      run(@count.gsub(/#{@efile}/,@namer.file(index)), @namer.count(index))
+      seeds = File.read(@namer.count(index)).to_i.times.to_a
+
       index += 1
-      seeds = [0,1,2] # TODO obtain the real seeds range
     else
       puts "reduction query result differs, retrying"
     end
