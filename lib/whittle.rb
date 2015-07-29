@@ -125,7 +125,9 @@ begin
   )
 
   puts "* generating reference query result"
+  t = Time.now
   @gen.query(0)
+  puts "* query took #{(Time.now - t).round(2)}s"
 
   1.step do |index|
     puts "Attempting reduction number #{index}"
@@ -138,7 +140,11 @@ begin
       @gen.reduce(index,seed)
 
       puts "* querying candidate reduction"
-      @gen.query(index)
+      t = Time.now
+      result = @gen.query(index)
+      puts "* query took #{(Time.now - t).round(2)}s"
+      result
+
     end
     break
   end
