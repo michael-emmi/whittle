@@ -23,8 +23,10 @@ class Naming
     @directory = directory
     @basename = File.basename(original,'.*')
     @extname = File.extname(original)
+    FileUtils.mkdir_p @directory
+    FileUtils.cp(original,reduction(0))
   end
-  def file(index)
+  def reduction(index)
     File.join(@directory,"#{@basename}.#{index}#{@extname}")
   end
   def result(index)
@@ -32,6 +34,33 @@ class Naming
   end
   def count(index)
     File.join(@directory,"#{@basename}.#{index}.count")
+  end
+end
+
+class Generator
+  def initialize(naming, query, reduce, count, file_expr, seed_expr)
+    @naming = naming
+    @query = query
+    @reduce = reduce
+    @count = count
+    @file_expr = file_expr
+    @seed_expr = seed_expr
+  end
+  def query(index)
+    command = @query.gsub(/#{@file_expr}/, @naming.reduction(index))
+    run(command, @naming.result(index))
+    FileUtils.identical?(@naming.result(0), @naming.result(index))
+  end
+  def reduce(index, seed)
+    command = @reduce.
+      gsub(/#{@file_expr}/, @naming.reduction(index-1)).
+      gsub(/#{@seed_expr}/, seed.to_s)
+    run(command, @naming.reduction(index))
+  end
+  def seeds(index)
+    command = @count.gsub(/#{@file_expr}/, @naming.reduction(index))
+    run(command, @naming.count(index))
+    File.read(@naming.count(index)).to_i.times.to_a
   end
 end
 
@@ -90,48 +119,32 @@ begin
   error "output directory #{@dir} already exists" if File.exist?(@dir)
   @input = ARGV.first
 
-  @namer = Naming.new(@dir,@input)
-  FileUtils.mkdir_p @dir
-  FileUtils.cp(@input,@namer.file(0))
+  @gen = Generator.new(
+    Naming.new(@dir,@input),
+    @query, @reduce, @count, @efile, @eseed
+  )
 
-  puts "Generating reference query result"
-  run(@query.gsub(/#{@efile}/,@namer.file(0)), @namer.result(0))
+  puts "* generating reference query result"
+  @gen.query(0)
 
-  index = 1
+  1.step do |index|
+    puts "Attempting reduction number #{index}"
+    puts "* generating reduction seeds"
+    seeds = @gen.seeds(index-1)
+    seeds.shuffle! if @random
 
-  puts "Counting seeds"
-  run(@count.gsub(/#{@efile}/,@namer.file(0)), @namer.count(0))
-  seeds = File.read(@namer.count(0)).to_i.times.to_a
+    next if seeds.any? do |seed|
+      puts "* generating reduction from seed #{seed}"
+      @gen.reduce(index,seed)
 
-  loop do
-
-    if seeds.empty?
-      puts "Exhausted all known reductions"
-      break
+      puts "* querying candidate reduction"
+      @gen.query(index)
     end
-
-    seed = @random ? seeds.delete_at(rand(seeds.count)) : seeds.shift
-
-    puts "generating new reduction (seed = #{seed})"
-    run(@reduce.
-      gsub(/#{@efile}/,@namer.file(index-1)).
-      gsub(/#{@eseed}/,seed.to_s), @namer.file(index))
-
-    puts "generating query result"
-    run(@query.gsub(/#{@efile}/,@namer.file(index)), @namer.result(index))
-
-    if FileUtils.identical?(@namer.result(0),@namer.result(index))
-      puts "obtained new reduction (number #{index})"
-
-      puts "Counting seeds"
-      run(@count.gsub(/#{@efile}/,@namer.file(index)), @namer.count(index))
-      seeds = File.read(@namer.count(index)).to_i.times.to_a
-
-      index += 1
-    else
-      puts "reduction query result differs, retrying"
-    end
+    break
   end
+
+rescue Interrupt
+
 ensure
 
 end
