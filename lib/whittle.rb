@@ -146,6 +146,8 @@ begin
       result
 
     end
+
+    puts "No more reduction seeds remain; terminating!"
     break
   end
 
