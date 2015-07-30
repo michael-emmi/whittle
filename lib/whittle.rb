@@ -129,6 +129,9 @@ begin
   @gen.query(0)
   puts "* query took #{(Time.now - t).round(2)}s"
 
+  attempts = []
+  count = 0
+
   1.step do |index|
     puts "Attempting reduction number #{index}"
     puts "* generating reduction seeds"
@@ -136,13 +139,22 @@ begin
     seeds.shuffle! if @random
 
     next if seeds.any? do |seed|
+      attempts[seed] ||= 0
+
+      if attempts[seed] > 0
+        next if count < 20 * attempts[seed]
+      end
+
       puts "* generating reduction from seed #{seed}"
       @gen.reduce(index,seed)
+      attempts[seed] += 1
+      count += 1
 
       puts "* querying candidate reduction"
       t = Time.now
       result = @gen.query(index)
       puts "* query took #{(Time.now - t).round(2)}s"
+      attempts = attempts.take(seed) if result
       result
 
     end
