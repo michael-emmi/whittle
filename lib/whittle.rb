@@ -57,10 +57,10 @@ class Generator
       gsub(/#{@seed_expr}/, seed.to_s)
     run(command, @naming.reduction(index))
   end
-  def seeds(index)
+  def count(index)
     command = @count.gsub(/#{@file_expr}/, @naming.reduction(index))
     run(command, @naming.count(index))
-    File.read(@naming.count(index)).to_i.times.to_a
+    File.read(@naming.count(index)).to_i
   end
 end
 
@@ -108,6 +108,13 @@ OptionParser.new do |opts|
   opts.separator ""
 end.parse!
 
+def status(idx,seed,count,action)
+  p1 = " reduction: #{idx} ".center(20)
+  p2 = " seed: #{seed}/#{count} ".center(20)
+  p3 = " #{action} ".center(20)
+  "\r ** #{p1} ** #{p2} ** #{p3} **".center(80)
+end
+
 begin
 
   puts version.bold
@@ -124,44 +131,22 @@ begin
     @query, @reduce, @count, @efile, @eseed
   )
 
-  puts "* generating reference query result"
-  t = Time.now
+  print status(0,0,0,:querying)
   @gen.query(0)
-  puts "* query took #{(Time.now - t).round(2)}s"
-
-  attempts = []
-  count = 0
-
+  current = 0
+  count = "?"
   1.step do |index|
-    puts "Attempting reduction number #{index}"
-    puts "* generating reduction seeds"
-    seeds = @gen.seeds(index-1)
-    seeds.shuffle! if @random
-
-    next if seeds.any? do |seed|
-      attempts[seed] ||= 0
-
-      if attempts[seed] > 0
-        next if count < 20 * attempts[seed]
-      end
-
-      puts "* generating reduction from seed #{seed}"
+    print status(index,current,count,:counting)
+    count = @gen.count(index-1)
+    break unless current = current.upto(count).find do |seed|
+      print status(index,seed,count,:reducing)
       @gen.reduce(index,seed)
-      attempts[seed] += 1
-      count += 1
-
-      puts "* querying candidate reduction"
-      t = Time.now
-      result = @gen.query(index)
-      puts "* query took #{(Time.now - t).round(2)}s"
-      attempts = attempts.take(seed) if result
-      result
-
+      print status(index,seed,count,:querying)
+      @gen.query(index)
     end
-
-    puts "No more reduction seeds remain; terminating!"
-    break
   end
+  puts
+  puts "Done whittling."
 
 rescue Interrupt
 
