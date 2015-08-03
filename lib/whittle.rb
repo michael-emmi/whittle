@@ -133,7 +133,10 @@ class Stats
 
   def to_s
 
-    qtimes = @timings[:query]
+    if @timings[:query]
+      qtimes = @timings[:query].each_with_index.
+        select{|_,i| @data[:query][i]}.map{|t,_| t}
+    end
     qresults = @data[:query]
 
     itime = qtimes ? "#{qtimes.first.round(2)}s" : ""
