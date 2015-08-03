@@ -18,6 +18,10 @@ def warn(msg)
   puts "Warning: #{msg}".yellow
 end
 
+def file_size(file)
+  File.read(file).scan(/\n/).count
+end
+
 class Naming
   def initialize(directory, original)
     @directory = directory
@@ -28,6 +32,9 @@ class Naming
   end
   def reduction(index)
     File.join(@directory,"#{@basename}.#{index}#{@extname}")
+  end
+  def final
+    File.join(@directory,"#{@basename}.whittled#{@extname}")
   end
   def result(index)
     File.join(@directory,"#{@basename}.#{index}.out")
@@ -49,13 +56,19 @@ class Generator
   def query(index)
     command = @query.gsub(/#{@file_expr}/, @naming.reduction(index))
     run(command, @naming.result(index))
-    FileUtils.identical?(@naming.result(0), @naming.result(index))
+    if FileUtils.identical?(@naming.result(0), @naming.result(index))
+      FileUtils.cp(@naming.reduction(index),@naming.final)
+      true
+    else
+      false
+    end
   end
   def reduce(index, seed)
     command = @reduce.
       gsub(/#{@file_expr}/, @naming.reduction(index-1)).
       gsub(/#{@seed_expr}/, seed.to_s)
     run(command, @naming.reduction(index))
+    file_size(@naming.reduction(index))
   end
   def count(index)
     command = @count.gsub(/#{@file_expr}/, @naming.reduction(index))
@@ -108,41 +121,90 @@ OptionParser.new do |opts|
   opts.separator ""
 end.parse!
 
-def status(idx,seed,count,action)
-  p1 = " reduction: #{idx} ".center(20)
-  p2 = " seed: #{seed}/#{count} ".center(20)
-  p3 = " #{action} ".center(20)
-  "\r ** #{p1} ** #{p2} ** #{p3} **".center(80)
-end
+class Stats
 
+  LETTER = '#'
+  WIDTH = 70
 
-LETTER = ''
-WIDTH = 80
-PAD = 4
-BAR = WIDTH - 2*PAD
-
-def stats
-  x = Math.log(@stats[:seed],2) / Math.log(@stats[:count].to_i,2)
-  x = 0 unless x.finite?
-  percentage = (x * 100).round
-  <<-eos
-reduction: #{@stats[:index]}
-status: #{@stats[:doing]}
-seeds: #{@stats[:seed]}/#{@stats[:count]} (#{percentage}%)
-
-#{" " * PAD}#{LETTER * (BAR*x)}#{"_" * (BAR*(1-x))}
-
-  eos
-end
-
-def display
-  s = stats
-  if @hit
-    print "\r"
-    print "\e[A\e[K" * s.lines.count
+  def initialize
+    @timings = {}
+    @data = {}
   end
-  print s
-  @hit = true
+
+  def to_s
+
+    qtimes = @timings[:query]
+    qresults = @data[:query]
+
+    itime = qtimes ? "#{qtimes.first.round(2)}s" : ""
+    atime = qtimes ? "#{(qtimes.reduce(:+) / qtimes.count).round(2)}s" : ""
+    ctime = qtimes ? "#{qtimes.last.round(2)}s" : ""
+
+    pqueries = qresults ? qresults.drop(1).select{|res| res}.count.to_s : ""
+    fqueries = qresults ? qresults.drop(1).select{|res| !res}.count.to_s : ""
+
+    isize = @data[:size]
+    csize = @data[:reduce].last if @data[:reduce]
+    pcred = "(#{(100.0 * csize / isize).round}%)" if @data[:reduce]
+
+    status = @data[:status]
+    index = (@data[:index] || 1) - 1
+    count = @data[:count].last if @data[:count]
+    seed = @data[:seed]
+
+    progress =
+      Math.sqrt(seed.to_f + index + 1) / Math.sqrt(count.to_f + index + 1)
+    progress = 0 unless progress.finite? && @data[:count]
+    percentage = (progress * 100).round
+    str = <<-eos
+
+  queries                             reductions
+  -------                             ----------
+  initial time: #{itime.ljust(18)}    valid reductions: #{index}
+  average time: #{atime.ljust(18)}    initial size: #{isize}
+  current time: #{ctime.ljust(18)}    current size: #{csize} #{pcred}
+
+  Nº passed: #{pqueries.ljust(21)}    current seed Nº: #{seed}
+  Nº failed: #{fqueries.ljust(21)}    available seeds: #{count}
+
+  #{LETTER * (WIDTH*progress)}#{"_" * (WIDTH*(1-progress))} (#{percentage}%)
+  (approximate progress)
+    eos
+
+    case status
+    when :query
+      str.sub('queries',"QUERIES".bold).sub('-' * 7, '=' * 7)
+    when :reduce
+      str.sub('reductions',"REDUCTIONS".bold).sub('-' * 10, '=' * 10)
+    else
+      str.sub('reductions',"(COUNTING)".bold).sub('-' * 10, '=' * 10)
+    end
+  end
+
+  def display
+    s = to_s
+    if @hit
+      print "\r"
+      print "\e[A\e[K" * s.lines.count
+    end
+    print s
+    @hit = true
+  end
+
+  def watch(status, extras = {})
+    @data[:status] = status
+    @data.merge!(extras)
+    display
+    t = Time.now
+    res = yield if block_given?
+    @timings[status] ||= []
+    @data[status] ||= []
+    @timings[status] << (Time.now - t)
+    @data[status] << res
+    display
+    res
+  end
+
 end
 
 begin
@@ -156,45 +218,24 @@ begin
   error "output directory #{@dir} already exists" if File.exist?(@dir)
   @input = ARGV.first
 
-  @gen = Generator.new(
-    Naming.new(@dir,@input),
-    @query, @reduce, @count, @efile, @eseed
-  )
+  @naming = Naming.new(@dir,@input)
+  @gen = Generator.new(@naming, @query, @reduce, @count, @efile, @eseed)
+  @stats = Stats.new
 
-  @stats = {
-    index: 0,
-    seed: 0,
-    count: "?",
-    doing: :querying,
-  }
-
-  display
-  t = Time.now
-  @gen.query(0)
-  @stats[:ref_time] = Time.now - t
+  @stats.watch(:query, size: file_size(@input)) {@gen.query(0)}
+  current = 0
 
   1.step do |index|
-    @stats[:index] = index
-    @stats[:doing] = :counting
-    display
-    @stats[:count] = @gen.count(index-1)
-
-    break unless current = current.upto(@stats[:count]).find do |seed|
-      @stats[:seed] = seed
-      @stats[:doing] = :reducing
-      display
-      @gen.reduce(index,seed)
-
-      @stats[:doing] = :querying
-      display
-      @gen.query(index)
+    count = @stats.watch(:count, index: index) {@gen.count(index-1)}
+    break unless current = current.upto(count).find do |seed|
+      @stats.watch(:reduce, seed: seed) {@gen.reduce(index,seed)}
+      @stats.watch(:query) {@gen.query(index)}
     end
   end
-  puts
-  puts "Done whittling."
 
 rescue Interrupt
 
 ensure
-
+  puts
+  puts "Result written to #{@naming.final}"
 end
