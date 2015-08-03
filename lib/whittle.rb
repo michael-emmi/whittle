@@ -115,6 +115,36 @@ def status(idx,seed,count,action)
   "\r ** #{p1} ** #{p2} ** #{p3} **".center(80)
 end
 
+
+LETTER = ''
+WIDTH = 80
+PAD = 4
+BAR = WIDTH - 2*PAD
+
+def stats
+  x = Math.log(@stats[:seed],2) / Math.log(@stats[:count].to_i,2)
+  x = 0 unless x.finite?
+  percentage = (x * 100).round
+  <<-eos
+reduction: #{@stats[:index]}
+status: #{@stats[:doing]}
+seeds: #{@stats[:seed]}/#{@stats[:count]} (#{percentage}%)
+
+#{" " * PAD}#{LETTER * (BAR*x)}#{"_" * (BAR*(1-x))}
+
+  eos
+end
+
+def display
+  s = stats
+  if @hit
+    print "\r"
+    print "\e[A\e[K" * s.lines.count
+  end
+  print s
+  @hit = true
+end
+
 begin
 
   puts version.bold
@@ -131,17 +161,32 @@ begin
     @query, @reduce, @count, @efile, @eseed
   )
 
-  print status(0,0,0,:querying)
+  @stats = {
+    index: 0,
+    seed: 0,
+    count: "?",
+    doing: :querying,
+  }
+
+  display
+  t = Time.now
   @gen.query(0)
-  current = 0
-  count = "?"
+  @stats[:ref_time] = Time.now - t
+
   1.step do |index|
-    print status(index,current,count,:counting)
-    count = @gen.count(index-1)
-    break unless current = current.upto(count).find do |seed|
-      print status(index,seed,count,:reducing)
+    @stats[:index] = index
+    @stats[:doing] = :counting
+    display
+    @stats[:count] = @gen.count(index-1)
+
+    break unless current = current.upto(@stats[:count]).find do |seed|
+      @stats[:seed] = seed
+      @stats[:doing] = :reducing
+      display
       @gen.reduce(index,seed)
-      print status(index,seed,count,:querying)
+
+      @stats[:doing] = :querying
+      display
       @gen.query(index)
     end
   end
