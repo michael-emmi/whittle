@@ -142,9 +142,14 @@ class Stats
     pqueries = qresults ? qresults.drop(1).select{|res| res}.count.to_s : ""
     fqueries = qresults ? qresults.drop(1).select{|res| !res}.count.to_s : ""
 
+    if @data[:reduce]
+      rresults = @data[:reduce].each_with_index.
+        select{|_,i| @data[:query][i+1]}.map{|t,_| t}
+    end
+
     isize = @data[:size]
-    csize = @data[:reduce].last if @data[:reduce]
-    pcred = "(#{(100.0 * csize / isize).round}%)" if @data[:reduce]
+    csize = rresults.last unless rresults.nil? || rresults.empty?
+    pcred = "(#{(100.0 * csize / isize).round}%)" if csize
 
     status = @data[:status]
     index = (@data[:index] || 1) - 1
