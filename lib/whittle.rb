@@ -239,6 +239,8 @@ begin
 rescue Interrupt
 
 ensure
-  puts
-  puts "Result written to #{@naming.final}"
+  if @naming && File.exist?(@naming.final)
+    puts
+    puts "Result written to #{@naming.final}"
+  end
 end
