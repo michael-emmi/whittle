@@ -84,7 +84,6 @@ end
 @verbose = false
 @efile = :@FILE
 @eseed = :@SEED
-@random = false
 @dir = File.join(Dir.pwd,"WHITTLED")
 
 OptionParser.new do |opts|
@@ -111,9 +110,6 @@ OptionParser.new do |opts|
   end
   opts.on("-s", "--seed EXPR", "Seed expression (default #{@eseed})") do |e|
     @eseed = e
-  end
-  opts.on("--[no-]random-seed", "Use random seeding?") do |r|
-    @random = r
   end
   opts.on("-o", "--output-dir", "Output directory") do |d|
     @dir = d
@@ -159,6 +155,13 @@ class Stats
       Math.sqrt(seed.to_f + index + 1) / Math.sqrt(count.to_f + index + 1)
     progress = 0 unless progress.finite? && @data[:count]
     percentage = (progress * 100).round
+
+    rtime = (Time.now - @data[:start_time]).round
+    seconds = rtime % 60
+    minutes = rtime / 60 % 60
+    hours = rtime / 60 / 60
+    time = "#{hours}h #{minutes}m #{seconds}s"
+
     str = <<-eos
 
   queries                             reductions
@@ -171,7 +174,7 @@ class Stats
   Nº failed: #{fqueries.ljust(21)}    available seeds: #{count}
 
   #{LETTER * (WIDTH*progress)}#{"_" * (WIDTH*(1-progress))} (#{percentage}%)
-  (approximate progress)
+  (approximate progress)              running time: #{time}
     eos
 
     case status
@@ -225,7 +228,7 @@ begin
   @gen = Generator.new(@naming, @query, @reduce, @count, @efile, @eseed)
   @stats = Stats.new
 
-  @stats.watch(:query, size: file_size(@input)) {@gen.query(0)}
+  @stats.watch(:query, size: file_size(@input), start_time: Time.now) {@gen.query(0)}
   current = 0
 
   1.step do |index|
