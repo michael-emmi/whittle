@@ -24,23 +24,27 @@ end
 
 class Naming
   def initialize(directory, original)
+    @digits = 4
     @directory = directory
     @basename = File.basename(original,'.*')
     @extname = File.extname(original)
     FileUtils.mkdir_p @directory
     FileUtils.cp(original,reduction(0))
   end
+  def seq(index)
+    "%0#{@digits}d" % index
+  end
   def reduction(index)
-    File.join(@directory,"#{@basename}.#{index}#{@extname}")
+    File.join(@directory,"#{@basename}.#{seq(index)}#{@extname}")
   end
   def final
     File.join(@directory,"#{@basename}.whittled#{@extname}")
   end
   def result(index)
-    File.join(@directory,"#{@basename}.#{index}.out")
+    File.join(@directory,"#{@basename}.#{seq(index)}.out")
   end
   def count(index)
-    File.join(@directory,"#{@basename}.#{index}.count")
+    File.join(@directory,"#{@basename}.#{seq(index)}.count")
   end
 end
 
