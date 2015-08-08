@@ -165,10 +165,10 @@ class Stats
     progress = 0 unless progress.finite? && @data[:count]
     percentage = (progress * 100).round
 
-    rtime = (Time.now - @data[:start_time]).round
-    seconds = rtime % 60
-    minutes = rtime / 60 % 60
-    hours = rtime / 60 / 60
+    rtime = (Time.now - @data[:start_time]).round if @data[:start_time]
+    seconds = rtime % 60 if rtime
+    minutes = rtime / 60 % 60 if rtime
+    hours = rtime / 60 / 60 if rtime
     time = "#{hours}h #{minutes}m #{seconds}s"
 
     str = <<-eos
@@ -209,14 +209,12 @@ class Stats
   def watch(status, extras = {})
     @data[:status] = status
     @data.merge!(extras)
-    display
     t = Time.now
     res = yield if block_given?
     @timings[status] ||= []
     @data[status] ||= []
     @timings[status] << (Time.now - t)
     @data[status] << res
-    display
     res
   end
 
@@ -237,6 +235,13 @@ begin
   @gen = Generator.new(@naming, @query, @reduce, @count, @efile, @eseed)
   @stats = Stats.new
 
+  ticker = Thread.new do
+    loop do
+      @stats.display
+      sleep 1
+    end
+  end
+
   @stats.watch(:query, size: file_size(@input), start_time: Time.now) {@gen.query(0)}
   current = 0
 
@@ -251,6 +256,7 @@ begin
 rescue Interrupt
 
 ensure
+  ticker.terminate if ticker
   if @naming && File.exist?(@naming.final)
     puts
     puts "Result written to #{@naming.final}"
