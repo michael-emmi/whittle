@@ -82,7 +82,7 @@ class Generator
 end
 
 def run(command, result_file)
-  `#{command} 2>&1 > #{result_file}`
+  `#{command} > #{result_file}`
 end
 
 @verbose = false
